@@ -1,11 +1,20 @@
-// server.js
 // Time Pass - extended backend for real-user 4-digit ID system, persistent storage, and "find by ID" / add-friend flows
 
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const app = express();
+const httpServer = http.createServer(app);
 const PORT = process.env.PORT || 3000;
+
+const DATA_DIR = path.join(__dirname, 'data');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const CHATS_FILE = path.join(DATA_DIR, 'chats.json');
+
+// Real-time (Socket.IO)
+const { Server } = require('socket.io');
+const io = new Server(httpServer);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -14,11 +23,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 // Data persistence (disk)
-const DATA_DIR = path.join(__dirname, 'data');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
-const CHATS_FILE = path.join(DATA_DIR, 'chats.json');
-
-// In-memory caches (loaded from disk)
 let users = [];
 let chats = [];
 
@@ -118,6 +122,32 @@ function findChatBetween(userId, friendId) {
     return c.participants.includes(userId) && c.participants.includes(friendId) && c.participants.length === 2;
   });
 }
+
+// Socket.IO: connection handling
+io.on('connection', (socket) => {
+  console.log('A user connected');
+
+  // Optional: join as a specific user
+  socket.on('join-user', ({ userId }) => {
+    if (userId) socket.join('user_' + userId);
+  });
+
+  // Join a chat room (per-chat)
+  socket.on('join-chat', ({ chatId }) => {
+    if (chatId) socket.join('chat_' + chatId);
+  });
+
+  // Relay a chat message to the specific chat room (if emitted by client)
+  socket.on('chat message', ({ chatId, msg }) => {
+    if (chatId) {
+      io.to('chat_' + chatId).emit('chat message', { chatId, msg });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected');
+  });
+});
 
 // API endpoints
 
@@ -292,6 +322,9 @@ app.post('/api/chats/:id/messages', (req, res) => {
   chat.last = msg.text;
   saveData();
 
+  // Real-time broadcast to all participants in this chat
+  io.to('chat_' + chatId).emit('chat message', { chatId, msg });
+
   res.json({ id: msg.id, sender: msg.sender, text: msg.text, time: msg.time });
 });
 
@@ -312,6 +345,6 @@ app.get('/api/search', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`Time Pass backend (extended) is running on http://localhost:${PORT}`);
 });
