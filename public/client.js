@@ -4,6 +4,7 @@
 let chats = [];
 let currentChatId = null;
 let currentUser = null; // { id, name }
+let socket = null; // Socket.IO client
 const API_BASE = ''; // relative root to API endpoints
 
 // DOM elements
@@ -14,7 +15,7 @@ const addFriendBtnEl = document.getElementById('addFriendBtn');
 const messagesEl = document.getElementById('messages');
 const currentNameEl = document.getElementById('currentName');
 const currentAvatarEl = document.getElementById('currentAvatar');
-const currentStatusEl = document.getElementById('currentStatus');
+const currentStatusEl = document.getElementByName?.('currentStatus') || document.getElementById('currentStatus');
 const messageInputEl = document.getElementById('messageInput');
 const composerFormEl = document.getElementById('composer');
 const headerSearchBtn = document.getElementById('headerSearchBtn');
@@ -77,6 +78,9 @@ function setCurrentChat(chatId) {
     .catch(() => {
       // Fallback: ignore
     });
+
+  // Join this chat room for real-time updates
+  if (socket) socket.emit('join-chat', { chatId: chatId });
 }
 
 // Build chat list UI
@@ -135,15 +139,33 @@ function ensureCurrentUser() {
   if (stored) {
     try {
       currentUser = JSON.parse(stored);
-      // Update UI
       yourIdBadge.textContent = `ID: ${currentUser.id}`;
+      // Initialize socket if available
+      if (!socket) {
+        socket = io();
+        socket.emit('join-user', { userId: currentUser.id });
+        // Listen for real-time messages
+        socket.on('chat message', payload => {
+          const { chatId, msg } = payload;
+          if (!chatId || !msg) return;
+          const chat = chats.find(c => c.id === chatId);
+          if (!chat) return;
+          // Avoid duplicates
+          if (!chat.messages.find(m => m.id === msg.id)) {
+            chat.messages.push({ id: msg.id, sender: msg.sender, text: msg.text, time: msg.time });
+            chat.last = msg.text;
+            renderMessages(chat);
+            renderChatList(searchInputEl.value);
+          }
+        });
+      }
       return Promise.resolve(currentUser);
     } catch {
-      // fallthrough to create
+      // fallthrough
     }
   }
 
-  // Create a new user (prompt for a name)
+  // Create a new user
   const name = prompt('Welcome to Time Pass. Enter your display name:') || 'Guest';
   return fetch(`${API_BASE}/api/users`, {
     method: 'POST',
@@ -155,13 +177,46 @@ function ensureCurrentUser() {
       currentUser = { id: user.id, name: user.name };
       localStorage.setItem('tp_current_user', JSON.stringify(currentUser));
       yourIdBadge.textContent = `ID: ${currentUser.id}`;
+      // Initialize socket
+      if (!socket) {
+        socket = io();
+        socket.emit('join-user', { userId: currentUser.id });
+        socket.on('chat message', payload => {
+          const { chatId, msg } = payload;
+          if (!chatId || !msg) return;
+          const chat = chats.find(c => c.id === chatId);
+          if (!chat) return;
+          if (!chat.messages.find(m => m.id === msg.id)) {
+            chat.messages.push({ id: msg.id, sender: msg.sender, text: msg.text, time: msg.time });
+            chat.last = msg.text;
+            renderMessages(chat);
+            renderChatList(searchInputEl.value);
+          }
+        });
+      }
       return currentUser;
     })
     .catch(() => {
-      // Fallback to a temporary user (in case of errors)
+      // Fallback to a temporary user
       currentUser = { id: '0000', name: 'Guest' };
       localStorage.setItem('tp_current_user', JSON.stringify(currentUser));
       yourIdBadge.textContent = `ID: 0000`;
+      if (!socket) {
+        socket = io();
+        socket.emit('join-user', { userId: currentUser.id });
+        socket.on('chat message', payload => {
+          const { chatId, msg } = payload;
+          if (!chatId || !msg) return;
+          const chat = chats.find(c => c.id === chatId);
+          if (!chat) return;
+          if (!chat.messages.find(m => m.id === msg.id)) {
+            chat.messages.push({ id: msg.id, sender: msg.sender, text: msg.text, time: msg.time });
+            chat.last = msg.text;
+            renderMessages(chat);
+            renderChatList(searchInputEl.value);
+          }
+        });
+      }
       return currentUser;
     });
 }
@@ -213,12 +268,7 @@ function addFriend() {
       // Prepend in local list
       chats.unshift({
         id: chatInfo.id,
-        peer: {
-          id: chatInfo.peer?.id,
-          name: chatInfo.peer?.name,
-          avatarColor: chatInfo.peer?.avatarColor,
-          online: chatInfo.peer?.online
-        },
+        peer: chatInfo.peer,
         last: chatInfo.last,
         lastTime: chatInfo.lastTime,
         messages: chatInfo.messages || []
@@ -307,7 +357,6 @@ searchBtn.addEventListener('click', () => {
       // Auto-select first if any
       if (results.length > 0) {
         // Already not a real chat; don't auto-select
-        // But you could fetch messages for a real chat
       }
     })
     .catch(() => {
@@ -351,13 +400,17 @@ composerFormEl && composerFormEl.addEventListener('submit', (e) => {
   })
     .then(res => res.json())
     .then(msg => {
-      // Update local chat
+      // Update local chat (optimistic)
       const chat = chats.find(c => c.id === currentChatId);
       if (chat) {
-        chat.messages.push({ id: msg.id, sender: currentUser.id, text: msg.text, time: msg.time });
+        chat.messages.push({ id: msg.id, sender: msg.sender, text: msg.text, time: msg.time });
         chat.last = msg.text;
         renderMessages(chat);
         renderChatList(searchInputEl.value);
+      }
+      // Also emit for immediate real-time delivery (optional)
+      if (socket) {
+        socket.emit('chat message', { chatId: currentChatId, msg: { id: msg.id, sender: msg.sender, text: msg.text, time: msg.time } });
       }
       messageInputEl.value = '';
     })
@@ -370,40 +423,27 @@ composerFormEl && composerFormEl.addEventListener('submit', (e) => {
 async function init() {
   await ensureCurrentUser();
   await loadChats();
-}
-function ensureCurrentUser() {
-  // Try to pull from localStorage; if not present, create new user via API
-  const stored = localStorage.getItem('tp_current_user');
-  if (stored) {
-    try {
-      currentUser = JSON.parse(stored);
-      yourIdBadge.textContent = `ID: ${currentUser.id}`;
-      return Promise.resolve(currentUser);
-    } catch {
-      // ignore and recreate
-    }
-  }
-  // Create new user
-  const name = prompt('Enter your display name:') || 'Guest';
-  return fetch(`${API_BASE}/api/users`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name })
-  })
-    .then(res => res.json())
-    .then(user => {
-      currentUser = { id: user.id, name: user.name };
-      localStorage.setItem('tp_current_user', JSON.stringify(currentUser));
-      yourIdBadge.textContent = `ID: ${currentUser.id}`;
-      return currentUser;
-    })
-    .catch(() => {
-      currentUser = { id: '0000', name: 'Guest' };
-      localStorage.setItem('tp_current_user', JSON.stringify(currentUser));
-      yourIdBadge.textContent = `ID: 0000`;
-      return currentUser;
-    });
-}
 
-// Kick off
+  // Initialize socket if not yet created
+  if (!socket) {
+    socket = io();
+    if (currentUser?.id) {
+      socket.emit('join-user', { userId: currentUser.id });
+    }
+
+    // When real-time updates arrive for a chat
+    socket.on('chat message', payload => {
+      const { chatId, msg } = payload;
+      if (!chatId || !msg) return;
+      const chat = chats.find(c => c.id === chatId);
+      if (!chat) return;
+      if (!chat.messages.find(m => m.id === msg.id)) {
+        chat.messages.push({ id: msg.id, sender: msg.sender, text: msg.text, time: msg.time });
+        chat.last = msg.text;
+        renderMessages(chat);
+        renderChatList(searchInputEl.value);
+      }
+    });
+  }
+}
 init();
