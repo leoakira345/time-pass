@@ -1,0 +1,62 @@
+<!-- public/index.html (Time Pass frontend) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Time Pass</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" aria-label="Time Pass chat application">
+    <!-- Sidebar: Chat list & actions -->
+    <aside class="sidebar" aria-label="Chats">
+      <div class="brand">
+        <span class="logo">TP</span>
+        <span class="brand-name">Time Pass</span>
+        <span id="yourIdBadge" class="id-pill" title="Your 4-digit user ID" style="margin-left:auto; padding:6px 10px; border-radius:999px; background:#1f8bd1; color:white; font-weight:700; font-size:12px;">ID: ----</span>
+      </div>
+
+      <div class="search-area" aria-label="Search chats">
+        <input id="searchInput" type="text" placeholder="Search chats" />
+        <button id="searchBtn" class="icon-btn" title="Search" aria-label="Search button">🔎</button>
+      </div>
+
+      <div class="find-id-area" aria-label="Find user by ID" style="display:flex; gap:8px; align-items:center; padding:8px 6px;">
+        <input id="findIdInput" type="text" placeholder="Enter 4-digit ID" maxlength="4" style="flex:1; padding:10px; border-radius:6px; border:1px solid #2e3a49;" />
+        <button id="findIdBtn" class="icon-btn" title="Find by ID" aria-label="Find by ID button" style="width:40px; height:40px; border-radius:8px;">=</button>
+      </div>
+
+      <div id="findResult" class="find-result" aria-label="Find result" style="min-height:40px; padding:0 6px;"></div>
+
+      <button id="addFriendBtn" class="new-chat" title="Add a friend" style="margin-top:6px;">Add Friend</button>
+
+      <div class="chat-list" id="chatList" aria-label="Chat list"></div>
+    </aside>
+
+    <!-- Chat area -->
+    <section class="chat-area" aria-label="Active chat">
+      <header class="chat-header" style="gap:12px;">
+        <div class="avatar" id="currentAvatar" aria-label="Chat avatar">?</div>
+        <div class="chat-info">
+          <div id="currentName" class="name">Choose a chat</div>
+          <div id="currentStatus" class="status"></div>
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn" title="Search messages" aria-label="Search messages" id="headerSearchBtn">🔎</button>
+          <button class="icon-btn" title="More options" aria-label="More options" id="headerMoreBtn">⋮</button>
+        </div>
+      </header>
+
+      <div class="messages" id="messages" aria-live="polite"></div>
+
+      <form class="composer" id="composer" autocomplete="off" aria-label="Message composer">
+        <input id="messageInput" type="text" placeholder="Type a message" />
+        <button type="submit" class="send-btn" aria-label="Send message">Send</button>
+      </form>
+    </section>
+  </div>
+
+  <script src="/client.js" defer></script>
+</body>
+</html>
