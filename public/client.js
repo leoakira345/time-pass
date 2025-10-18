@@ -5,7 +5,6 @@ let chats = [];
 let currentChatId = null;
 let currentUser = null; // { id, name }
 const API_BASE = ''; // relative root to API endpoints
-let socket;
 
 // DOM elements
 const chatListEl = document.getElementById('chatList');
@@ -159,7 +158,7 @@ function ensureCurrentUser() {
       return currentUser;
     })
     .catch(() => {
-      // Fallback
+      // Fallback to a temporary user (in case of errors)
       currentUser = { id: '0000', name: 'Guest' };
       localStorage.setItem('tp_current_user', JSON.stringify(currentUser));
       yourIdBadge.textContent = `ID: 0000`;
@@ -194,7 +193,7 @@ function loadChats() {
 function addFriend() {
   const name = prompt('Enter your friend\'s name to create a chat (optional)').trim();
   if (!name && !currentUser?.id) return;
-  // Create a new user by name, then start chat
+  // For simplicity, allow adding a new user by name and then start chat
   fetch(`${API_BASE}/api/users`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -202,7 +201,7 @@ function addFriend() {
   })
     .then(res => res.json())
     .then(newUser => {
-      // Create chat with this user
+      // Create chat with this new user
       return fetch(`${API_BASE}/api/chats`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -307,7 +306,8 @@ searchBtn.addEventListener('click', () => {
       renderChatList();
       // Auto-select first if any
       if (results.length > 0) {
-        // Do not auto-open a real chat here
+        // Already not a real chat; don't auto-select
+        // But you could fetch messages for a real chat
       }
     })
     .catch(() => {
@@ -354,56 +354,56 @@ composerFormEl && composerFormEl.addEventListener('submit', (e) => {
       // Update local chat
       const chat = chats.find(c => c.id === currentChatId);
       if (chat) {
-        // Avoid duplicates if real-time also arrives
-        if (!chat.messages.find(m => m.id === msg.id)) {
-          chat.messages.push({ id: msg.id, sender: msg.sender, text: msg.text, time: msg.time });
-        }
+        chat.messages.push({ id: msg.id, sender: currentUser.id, text: msg.text, time: msg.time });
         chat.last = msg.text;
         renderMessages(chat);
         renderChatList(searchInputEl.value);
       }
       messageInputEl.value = '';
-      // Emit real-time update so others see it
-      if (typeof io !== 'undefined' && socket) {
-        socket.emit('chat message', { chatId: currentChatId, userId: currentUser.id, text });
-      }
     })
     .catch(() => {
       // Optional: queue send for later
     });
 });
 
-// Real-time: connect to Socket.IO (if loaded)
-async function initSocket() {
-  if (typeof io === 'undefined') return;
-  socket = io();
-  socket.on('chat message', (payload) => {
-    const { chatId, message } = payload || {};
-    if (!chatId || !message) return;
-
-    const chat = chats.find(c => c.id === chatId);
-    if (!chat) return;
-
-    // Avoid duplicates
-    if (!chat.messages.find(m => m.id === message.id)) {
-      chat.messages.push(message);
-      chat.last = message.text;
-      chat.lastTime = message.time;
-    }
-
-    if (currentChatId === chatId) {
-      renderMessages(chat);
-      renderChatList();
-    } else {
-      renderChatList();
-    }
-  });
-}
-
 // Initialize
 async function init() {
   await ensureCurrentUser();
   await loadChats();
-  await initSocket();
 }
+function ensureCurrentUser() {
+  // Try to pull from localStorage; if not present, create new user via API
+  const stored = localStorage.getItem('tp_current_user');
+  if (stored) {
+    try {
+      currentUser = JSON.parse(stored);
+      yourIdBadge.textContent = `ID: ${currentUser.id}`;
+      return Promise.resolve(currentUser);
+    } catch {
+      // ignore and recreate
+    }
+  }
+  // Create new user
+  const name = prompt('Enter your display name:') || 'Guest';
+  return fetch(`${API_BASE}/api/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  })
+    .then(res => res.json())
+    .then(user => {
+      currentUser = { id: user.id, name: user.name };
+      localStorage.setItem('tp_current_user', JSON.stringify(currentUser));
+      yourIdBadge.textContent = `ID: ${currentUser.id}`;
+      return currentUser;
+    })
+    .catch(() => {
+      currentUser = { id: '0000', name: 'Guest' };
+      localStorage.setItem('tp_current_user', JSON.stringify(currentUser));
+      yourIdBadge.textContent = `ID: 0000`;
+      return currentUser;
+    });
+}
+
+// Kick off
 init();
